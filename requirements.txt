@@ -1,5 +1,6 @@
-fastapi
-uvicorn
-pulp
+Flask
+Flask-Cors
+gunicorn
 pandas
-requests
+numpy
+pulp
