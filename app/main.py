@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-# VIKTIGT: Importera rätt funktion från din logik-fil!
 from optimizer_logic import run_fpl_optimizer
 
 app = Flask(__name__)
@@ -13,20 +12,40 @@ def optimize_team_endpoint():
         if not params:
             params = {}
 
-        # VIKTIGT: Anropa rätt funktion med parametrarna!
-        optimal_team_data = run_fpl_optimizer(
-            strategy=params.get('strategy', 'best_15'),
-            defensive_weight=params.get('defensive_weight'),
-            offensive_weight=params.get('offensive_weight'),
-            differential_factor=params.get('differential_factor'),
-            min_cheap_players=params.get('min_cheap_players'),
-            cheap_player_price_threshold=params.get('cheap_player_price_threshold')
-        )
+        # Bygg en dictionary med argument för optimeraren.
+        # Detta förhindrar att vi skriver över standardvärden med None.
+        kwargs = {}
+        
+        # Strategi behövs alltid.
+        if 'strategy' in params and params['strategy'] is not None:
+            kwargs['strategy'] = params['strategy']
+
+        # Lägg bara till valfria parametrar om de faktiskt skickas från frontend.
+        optional_params = [
+            'defensive_weight', 'offensive_weight', 'differential_factor',
+            'min_cheap_players', 'cheap_player_price_threshold'
+        ]
+        
+        for param in optional_params:
+            if param in params and params[param] is not None:
+                # Försök att konvertera till rätt datatyp (float eller int).
+                # Detta är en extra säkerhetsåtgärd.
+                try:
+                    if 'weight' in param or 'factor' in param or 'threshold' in param:
+                        kwargs[param] = float(params[param])
+                    elif 'players' in param:
+                        kwargs[param] = int(params[param])
+                except (ValueError, TypeError):
+                    # Ignorera parametern om konverteringen misslyckas.
+                    pass
+
+        # Anropa optimeraren med de insamlade argumenten.
+        # Om en parameter saknas i kwargs, kommer funktionen använda sitt eget default-värde.
+        optimal_team_data = run_fpl_optimizer(**kwargs)
 
         return jsonify(optimal_team_data)
 
     except Exception as e:
-        # Lägg till traceback för enklare felsökning i dina loggar
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
