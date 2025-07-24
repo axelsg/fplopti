@@ -1,47 +1,35 @@
-# app/main.py
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+# VIKTIGT: Importera rätt funktion från din logik-fil!
+from optimizer_logic import run_fpl_optimizer
 
-from fastapi import FastAPI
-# NY IMPORT: Importera CORSMiddleware
-from fastapi.middleware.cors import CORSMiddleware
+app = Flask(__name__)
+CORS(app)
 
-# Importera funktionerna från våra andra moduler
-from .data_fetcher import update_fpl_data
-from .optimizer_logic import run_fpl_optimizer
+@app.route('/optimize-team', methods=['POST'])
+def optimize_team_endpoint():
+    try:
+        params = request.get_json()
+        if not params:
+            params = {}
 
-app = FastAPI(
-    title="FPL Optimizer API",
-    description="Ett API för att optimera ett Fantasy Premier League-lag."
-)
+        # VIKTIGT: Anropa rätt funktion med parametrarna!
+        optimal_team_data = run_fpl_optimizer(
+            strategy=params.get('strategy', 'best_15'),
+            defensive_weight=params.get('defensive_weight'),
+            offensive_weight=params.get('offensive_weight'),
+            differential_factor=params.get('differential_factor'),
+            min_cheap_players=params.get('min_cheap_players'),
+            cheap_player_price_threshold=params.get('cheap_player_price_threshold')
+        )
 
-# === NY KOD: Lägg till CORS Middleware ===
-# Definiera en lista över de domäner som får anropa detta API
-origins = [
-    "*"  # Detta tillåter ALLA domäner. För ett hobbyprojekt är detta okej.
-    # För en mer säker app skulle du specificera din Lovable-URL här, t.ex:
-    # "https://dinsida.lovable.com",
-    # "https://www.dindomän.ai"
-]
+        return jsonify(optimal_team_data)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
-    allow_methods=["*"], # Tillåt alla metoder (GET, POST, etc.)
-    allow_headers=["*"], # Tillåt alla headers
-)
-# ======================================
+    except Exception as e:
+        # Lägg till traceback för enklare felsökning i dina loggar
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
 
-@app.post("/update-data/", summary="Uppdatera FPL-data")
-def update_data_endpoint():
-    """
-    Kör skriptet för att hämta den senaste spelardatan från FPL:s API
-    och spara den som fpl_data.json.
-    """
-    return update_fpl_data()
-
-@app.get("/optimize-team/", summary="Optimera FPL-lag")
-def get_optimal_team():
-    """
-    Kör optimeraren på den senast hämtade datan och returnerar den bästa truppen.
-    """
-    return run_fpl_optimizer()
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
