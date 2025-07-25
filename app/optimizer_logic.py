@@ -1,10 +1,7 @@
-
-# ===============================================================
-# Fil: optimizer_logic.py
-# ===============================================================
 import pandas as pd
 import pulp
 import numpy as np
+import os # Importera os-modulen för att hantera filsökvägar
 
 def run_fpl_optimizer(
     strategy: str = 'best_15',
@@ -29,9 +26,13 @@ def run_fpl_optimizer(
     TOTAL_STARTING_XI_PLAYERS = 11
 
     try:
-        df = pd.read_json('fpl_data.json')
+        # **KORRIGERING: Bygg en absolut sökväg till datafilen.**
+        # Detta säkerställer att filen alltid hittas, oavsett var skriptet körs från.
+        script_dir = os.path.dirname(__file__)  # Hämtar mappen där detta skript ligger (app/)
+        data_path = os.path.join(script_dir, 'fpl_data.json') # Kombinerar den med filnamnet
+        df = pd.read_json(data_path)
     except FileNotFoundError:
-        return {"error": "Datakällan fpl_data.json hittades inte."}
+        return {"error": "Datakällan fpl_data.json hittades inte i app-mappen."}
     
     # --- Förbered data ---
     df['position'] = pd.Categorical(df['position'], categories=SQUAD_POSITIONS.keys(), ordered=True)
@@ -101,7 +102,6 @@ def run_fpl_optimizer(
     
     sorted_xi_for_captaincy = starting_xi_df.sort_values(by='adjusted_expected_points', ascending=False)
     
-    # **KORRIGERING: Denna lista säkerställer att matchdatan inkluderas.**
     result_columns = ['name', 'team', 'position', 'price', 'adjusted_expected_points', 'next_opponent', 'is_home']
     
     captain, vice_captain = None, None
