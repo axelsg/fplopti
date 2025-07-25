@@ -1,56 +1,4 @@
 # ===============================================================
-# Fil: main.py
-# ===============================================================
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-# Notera: Vi importerar den uppdaterade funktionen
-from optimizer_logic import run_fpl_optimizer
-
-app = Flask(__name__)
-CORS(app)
-
-@app.route('/optimize-team', methods=['POST'])
-def optimize_team_endpoint():
-    try:
-        params = request.get_json()
-        if not params:
-            params = {}
-
-        # Bygg en dictionary med argument för optimeraren.
-        kwargs = {}
-        
-        if 'strategy' in params and params['strategy'] is not None:
-            kwargs['strategy'] = params['strategy']
-
-        # Parametrar som fortfarande kan vara relevanta för andra strategier
-        optional_params = [
-            'defensive_weight', 'offensive_weight', 'differential_factor', 'min_cheap_players'
-        ]
-        
-        for param in optional_params:
-            if param in params and params[param] is not None:
-                try:
-                    # Konvertera till rätt datatyp
-                    if 'weight' in param or 'factor' in param:
-                        kwargs[param] = float(params[param])
-                    elif 'players' in param:
-                        kwargs[param] = int(params[param])
-                except (ValueError, TypeError):
-                    pass
-
-        optimal_team_data = run_fpl_optimizer(**kwargs)
-        return jsonify(optimal_team_data)
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
-
-
-# ===============================================================
 # Fil: optimizer_logic.py
 # ===============================================================
 import pandas as pd
@@ -103,41 +51,44 @@ def run_fpl_optimizer(
     if strategy == 'best_11_cheap_bench':
         prob = pulp.LpProblem("FPL_Single_Step_XI_Optimization", pulp.LpMaximize)
         
-        # Två typer av variabler: en för truppen, en för startelvan
         squad_vars = pulp.LpVariable.dicts("SquadPlayer", df.index, cat='Binary')
         xi_vars = pulp.LpVariable.dicts("XIPlayer", df.index, cat='Binary')
 
-        # MÅLET: Maximera poängen för de 11 spelare som är i startelvan
         prob += pulp.lpSum([xi_vars[i] * df.loc[i, 'adjusted_expected_points'] for i in df.index]), "Maximize Starting XI Points"
 
         # --- Begränsningar ---
-        # 1. En spelare kan bara vara i startelvan om den är i truppen
         for i in df.index:
             prob += xi_vars[i] <= squad_vars[i]
 
-        # 2. Total budget för 15-mannatruppen
         prob += pulp.lpSum([squad_vars[i] * df.loc[i, 'price'] for i in df.index]) <= BUDGET
-        
-        # 3. Regler för 15-mannatruppen
         prob += pulp.lpSum(squad_vars) == TOTAL_SQUAD_PLAYERS
         for pos, count in SQUAD_POSITIONS.items():
             prob += pulp.lpSum([squad_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) == count
         for team in df['team'].unique():
             prob += pulp.lpSum([squad_vars[i] for i in df.index if df.loc[i, 'team'] == team]) <= MAX_PLAYERS_PER_CLUB
             
-        # 4. Regler för 11-manna startelvan
         prob += pulp.lpSum(xi_vars) == TOTAL_STARTING_XI_PLAYERS
         for pos in SQUAD_POSITIONS.keys():
             prob += pulp.lpSum([xi_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) >= STARTING_XI_POS_MIN.get(pos, 0)
             prob += pulp.lpSum([xi_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) <= STARTING_XI_POS_MAX.get(pos, SQUAD_POSITIONS[pos])
 
-        # Lös det stora pusslet
+        # **KORRIGERING: Ny, strikt regel för att tvinga fram en billig bänk.**
+        # Denna regel säger: "Om en spelare är dyr, MÅSTE den vara i startelvan om den är i truppen."
+        # Detta förhindrar att dyra spelare hamnar på bänken.
+        for i in df.index:
+            player_pos = df.loc[i, 'position']
+            player_price = df.loc[i, 'price']
+            threshold = CHEAP_PLAYER_THRESHOLDS.get(player_pos)
+            # Om spelaren är dyrare än tröskelvärdet för sin position
+            if threshold and player_price > threshold:
+                # Tvinga spelaren att vara i startelvan om den är i truppen
+                prob += squad_vars[i] <= xi_vars[i]
+
         prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
         if pulp.LpStatus[prob.status] != 'Optimal':
             return {"error": f"Kunde inte hitta en optimal lösning med enstegs-strategin. Status: {pulp.LpStatus[prob.status]}"}
 
-        # Extrahera resultaten
         squad_indices = [i for i in df.index if squad_vars[i].varValue == 1]
         starting_xi_indices = [i for i in df.index if xi_vars[i].varValue == 1]
         
@@ -146,7 +97,6 @@ def run_fpl_optimizer(
 
     else:
         # --- GAMMAL TVÅSTEGS-METOD FÖR ANDRA STRATEGIER ---
-        # (Denna kod är densamma som tidigare)
         prob_squad = pulp.LpProblem("FPL_Squad_Optimization", pulp.LpMaximize)
         squad_player_vars = pulp.LpVariable.dicts("SquadPlayer", df.index, cat='Binary')
         
