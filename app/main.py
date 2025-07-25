@@ -1,34 +1,13 @@
-from flask import Flask, request, jsonify, json
+# ===============================================================
+# Fil: main.py
+# ===============================================================
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from optimizer_logic import run_fpl_optimizer
 
 app = Flask(__name__)
 CORS(app)
 
-# --- NY FELSÖKNINGS-ENDPOINT ---
-@app.route('/debug-data')
-def debug_data():
-    """
-    Denna endpoint läser fpl_data.json på servern och returnerar
-    datan för den första spelaren. Används för att verifiera att
-    filen har uppdaterats korrekt.
-    """
-    try:
-        # Försök att öppna filen från roten av projektet
-        with open('fpl_data.json', 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        # Returnera bara den första spelaren för att hålla det enkelt
-        first_player = data[0] if data else {}
-        return jsonify(first_player)
-        
-    except FileNotFoundError:
-        return jsonify({"error": "fpl_data.json hittades inte i projektets rot."})
-    except Exception as e:
-        return jsonify({"error": str(e)})
-
-
-# --- DIN BEFINTLIGA OPTIMERINGS-ENDPOINT ---
 @app.route('/optimize-team', methods=['POST'])
 def optimize_team_endpoint():
     try:
