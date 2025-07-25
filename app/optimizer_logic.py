@@ -1,5 +1,6 @@
 # ===============================================================
 # Fil: optimizer_logic.py
+# (Denna fil har den nya, korrigerade logiken)
 # ===============================================================
 import pandas as pd
 import pulp
@@ -15,9 +16,9 @@ def run_fpl_optimizer(
 ):
     """
     Kör hela optimeringsprocessen.
-    Strategin 'best_11_cheap_bench' använder nu en smartare enstegs-optimering.
+    Strategin 'best_11_cheap_bench' använder nu en smartare enstegs-optimering
+    med en bestraffning för dyr bänk.
     """
-
     # --- FPL Regler och konstanter ---
     BUDGET = 100.0
     SQUAD_POSITIONS = {"GKP": 2, "DEF": 5, "MID": 5, "FWD": 3}
@@ -26,7 +27,6 @@ def run_fpl_optimizer(
     STARTING_XI_POS_MIN = {"GKP": 1, "DEF": 3, "MID": 2, "FWD": 1}
     STARTING_XI_POS_MAX = {"GKP": 1, "DEF": 5, "MID": 5, "FWD": 3}
     TOTAL_STARTING_XI_PLAYERS = 11
-    CHEAP_PLAYER_THRESHOLDS = {"GKP": 4.0, "DEF": 4.0, "MID": 4.5, "FWD": 4.5}
 
     try:
         script_dir = os.path.dirname(__file__)
@@ -54,35 +54,27 @@ def run_fpl_optimizer(
         squad_vars = pulp.LpVariable.dicts("SquadPlayer", df.index, cat='Binary')
         xi_vars = pulp.LpVariable.dicts("XIPlayer", df.index, cat='Binary')
 
-        prob += pulp.lpSum([xi_vars[i] * df.loc[i, 'adjusted_expected_points'] for i in df.index]), "Maximize Starting XI Points"
+        # **KORRIGERING: Nytt, smartare mål.**
+        # Maximera poängen för startelvan MINUS en liten bestraffning för bänkkostnaden.
+        bench_cost_penalty_factor = 0.1 
+        objective = pulp.lpSum([xi_vars[i] * df.loc[i, 'adjusted_expected_points'] for i in df.index]) - \
+                    bench_cost_penalty_factor * pulp.lpSum([(squad_vars[i] - xi_vars[i]) * df.loc[i, 'price'] for i in df.index])
+        
+        prob += objective, "Maximize_XI_Points_Penalize_Bench_Cost"
 
-        # --- Begränsningar ---
+        # --- Begränsningar (samma som tidigare) ---
         for i in df.index:
             prob += xi_vars[i] <= squad_vars[i]
-
         prob += pulp.lpSum([squad_vars[i] * df.loc[i, 'price'] for i in df.index]) <= BUDGET
         prob += pulp.lpSum(squad_vars) == TOTAL_SQUAD_PLAYERS
         for pos, count in SQUAD_POSITIONS.items():
             prob += pulp.lpSum([squad_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) == count
         for team in df['team'].unique():
             prob += pulp.lpSum([squad_vars[i] for i in df.index if df.loc[i, 'team'] == team]) <= MAX_PLAYERS_PER_CLUB
-            
         prob += pulp.lpSum(xi_vars) == TOTAL_STARTING_XI_PLAYERS
         for pos in SQUAD_POSITIONS.keys():
             prob += pulp.lpSum([xi_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) >= STARTING_XI_POS_MIN.get(pos, 0)
             prob += pulp.lpSum([xi_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) <= STARTING_XI_POS_MAX.get(pos, SQUAD_POSITIONS[pos])
-
-        # **KORRIGERING: Ny, strikt regel för att tvinga fram en billig bänk.**
-        # Denna regel säger: "Om en spelare är dyr, MÅSTE den vara i startelvan om den är i truppen."
-        # Detta förhindrar att dyra spelare hamnar på bänken.
-        for i in df.index:
-            player_pos = df.loc[i, 'position']
-            player_price = df.loc[i, 'price']
-            threshold = CHEAP_PLAYER_THRESHOLDS.get(player_pos)
-            # Om spelaren är dyrare än tröskelvärdet för sin position
-            if threshold and player_price > threshold:
-                # Tvinga spelaren att vara i startelvan om den är i truppen
-                prob += squad_vars[i] <= xi_vars[i]
 
         prob.solve(pulp.PULP_CBC_CMD(msg=0))
 
@@ -97,6 +89,7 @@ def run_fpl_optimizer(
 
     else:
         # --- GAMMAL TVÅSTEGS-METOD FÖR ANDRA STRATEGIER ---
+        # (Denna kod är densamma som tidigare och fungerar bra för dessa strategier)
         prob_squad = pulp.LpProblem("FPL_Squad_Optimization", pulp.LpMaximize)
         squad_player_vars = pulp.LpVariable.dicts("SquadPlayer", df.index, cat='Binary')
         
@@ -120,6 +113,7 @@ def run_fpl_optimizer(
             prob_squad += pulp.lpSum([squad_player_vars[i] for i in df.index if df.loc[i, 'team'] == team]) <= MAX_PLAYERS_PER_CLUB
         
         if strategy == 'enabling':
+            CHEAP_PLAYER_THRESHOLDS = {"GKP": 4.0, "DEF": 4.0, "MID": 4.5, "FWD": 4.5}
             cheap_player_indices = [i for i in df.index if df.loc[i, 'price'] <= CHEAP_PLAYER_THRESHOLDS.get(df.loc[i, 'position'], 99)]
             prob_squad += pulp.lpSum([squad_player_vars[i] for i in cheap_player_indices]) >= min_cheap_players
 
