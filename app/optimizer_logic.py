@@ -8,12 +8,13 @@ def run_fpl_optimizer(
     defensive_weight: float = 1.2,
     offensive_weight: float = 1.2,
     differential_factor: float = 0.05,
-    min_cheap_players: int = 4,
-    cheap_player_price_threshold: float = 5.0
+    min_cheap_players: int = 4
+    # Notera: cheap_player_price_threshold är borttagen
 ):
     """
     Kör hela optimeringsprocessen och returnerar det optimala laget,
     inklusive information om nästa motståndare.
+    Använder nu positionsspecifika prisgränser för "billiga" spelare.
     """
 
     # --- FPL Regler och konstanter ---
@@ -25,11 +26,17 @@ def run_fpl_optimizer(
     STARTING_XI_POS_MAX = {"GKP": 1, "DEF": 5, "MID": 5, "FWD": 3}
     TOTAL_STARTING_XI_PLAYERS = 11
 
+    # NYTT: Positionsspecifika prisgränser för "billiga" spelare
+    CHEAP_PLAYER_THRESHOLDS = {
+        "GKP": 4.0,
+        "DEF": 4.0,
+        "MID": 4.5,
+        "FWD": 4.5
+    }
+
     try:
-        # **KORRIGERING: Bygg en absolut sökväg till datafilen.**
-        # Detta säkerställer att filen alltid hittas, oavsett var skriptet körs från.
-        script_dir = os.path.dirname(__file__)  # Hämtar mappen där detta skript ligger (app/)
-        data_path = os.path.join(script_dir, 'fpl_data.json') # Kombinerar den med filnamnet
+        script_dir = os.path.dirname(__file__)
+        data_path = os.path.join(script_dir, 'fpl_data.json')
         df = pd.read_json(data_path)
     except FileNotFoundError:
         return {"error": "Datakällan fpl_data.json hittades inte i app-mappen."}
@@ -68,8 +75,18 @@ def run_fpl_optimizer(
         prob_squad += pulp.lpSum([squad_player_vars[i] for i in df.index if df.loc[i, 'position'] == pos]) == count
     for team in df['team'].unique():
         prob_squad += pulp.lpSum([squad_player_vars[i] for i in df.index if df.loc[i, 'team'] == team]) <= MAX_PLAYERS_PER_CLUB
+    
+    # UPPDATERAD LOGIK för "billiga" spelare
     if strategy in ['best_11_cheap_bench', 'enabling']:
-        prob_squad += pulp.lpSum([squad_player_vars[i] for i in df.index if df.loc[i, 'price'] <= cheap_player_price_threshold]) >= min_cheap_players
+        cheap_player_indices = []
+        for i in df.index:
+            player_pos = df.loc[i, 'position']
+            player_price = df.loc[i, 'price']
+            threshold = CHEAP_PLAYER_THRESHOLDS.get(player_pos)
+            if threshold and player_price <= threshold:
+                cheap_player_indices.append(i)
+        
+        prob_squad += pulp.lpSum([squad_player_vars[i] for i in cheap_player_indices]) >= min_cheap_players, "Min Cheap Players Constraint"
 
     prob_squad.solve(pulp.PULP_CBC_CMD(msg=0))
 
