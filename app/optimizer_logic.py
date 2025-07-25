@@ -154,9 +154,25 @@ def create_optimal_team(fpl_data: Dict[str, Any], strategy: str = "best_15") -> 
     else:
         position_weights = {'GKP': 1.0, 'DEF': 1.0, 'MID': 1.0, 'FWD': 1.0}
     
+    # Add constraint for cheap bench in best_11_cheap_bench strategy
+    if strategy == "best_11_cheap_bench":
+        # Create bench indicator variables
+        bench = {}
+        for i in range(num_players):
+            bench[i] = solver.IntVar(0, 1, f'bench_{i}')
+            # Player is on bench if selected but not in starting XI
+            solver.Add(bench[i] == x[i] - starting_xi[i])
+        
+        # Limit total bench cost to encourage cheap bench
+        max_bench_cost = 18.0  # 4 players at average 4.5m each
+        solver.Add(
+            solver.Sum([bench[i] * players_df.iloc[i]['now_cost'] for i in range(num_players)]) <= max_bench_cost
+        )
+    
     # Objective function based on strategy
     if strategy == "best_11_cheap_bench":
-        # Maximize starting XI points only
+        # For best_11_cheap_bench: Focus entirely on maximizing starting XI quality
+        # The bench cost constraint will ensure cheap bench players
         objective = solver.Sum([
             starting_xi[i] * players_df.iloc[i]['ep_next'] * 
             position_weights.get(players_df.iloc[i]['position'], 1.0)
