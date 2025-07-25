@@ -1,10 +1,34 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, json
 from flask_cors import CORS
 from optimizer_logic import run_fpl_optimizer
 
 app = Flask(__name__)
 CORS(app)
 
+# --- NY FELSÖKNINGS-ENDPOINT ---
+@app.route('/debug-data')
+def debug_data():
+    """
+    Denna endpoint läser fpl_data.json på servern och returnerar
+    datan för den första spelaren. Används för att verifiera att
+    filen har uppdaterats korrekt.
+    """
+    try:
+        # Försök att öppna filen från roten av projektet
+        with open('fpl_data.json', 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Returnera bara den första spelaren för att hålla det enkelt
+        first_player = data[0] if data else {}
+        return jsonify(first_player)
+        
+    except FileNotFoundError:
+        return jsonify({"error": "fpl_data.json hittades inte i projektets rot."})
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+# --- DIN BEFINTLIGA OPTIMERINGS-ENDPOINT ---
 @app.route('/optimize-team', methods=['POST'])
 def optimize_team_endpoint():
     try:
@@ -12,15 +36,10 @@ def optimize_team_endpoint():
         if not params:
             params = {}
 
-        # Bygg en dictionary med argument för optimeraren.
-        # Detta förhindrar att vi skriver över standardvärden med None.
         kwargs = {}
-        
-        # Strategi behövs alltid.
         if 'strategy' in params and params['strategy'] is not None:
             kwargs['strategy'] = params['strategy']
-
-        # Lägg bara till valfria parametrar om de faktiskt skickas från frontend.
+        
         optional_params = [
             'defensive_weight', 'offensive_weight', 'differential_factor',
             'min_cheap_players', 'cheap_player_price_threshold'
@@ -28,21 +47,15 @@ def optimize_team_endpoint():
         
         for param in optional_params:
             if param in params and params[param] is not None:
-                # Försök att konvertera till rätt datatyp (float eller int).
-                # Detta är en extra säkerhetsåtgärd.
                 try:
                     if 'weight' in param or 'factor' in param or 'threshold' in param:
                         kwargs[param] = float(params[param])
                     elif 'players' in param:
                         kwargs[param] = int(params[param])
                 except (ValueError, TypeError):
-                    # Ignorera parametern om konverteringen misslyckas.
                     pass
 
-        # Anropa optimeraren med de insamlade argumenten.
-        # Om en parameter saknas i kwargs, kommer funktionen använda sitt eget default-värde.
         optimal_team_data = run_fpl_optimizer(**kwargs)
-
         return jsonify(optimal_team_data)
 
     except Exception as e:
