@@ -2,94 +2,118 @@ import requests
 import pandas as pd
 import json
 import numpy as np
+from collections import defaultdict
 
 def fetch_and_save_fpl_data():
     """
     Hämtar data från Fantasy Premier League API och sparar den till 'fpl_data.json'.
-    Inkluderar utökade parametrar för mer detaljerad optimering och visning.
+    Inkluderar nu utökad information om nästa match för varje spelare.
     """
-    FPL_API_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
+    FPL_BOOTSTRAP_URL = "https://fantasy.premierleague.com/api/bootstrap-static/"
+    FPL_FIXTURES_URL = "https://fantasy.premierleague.com/api/fixtures/"
 
     try:
+        # Steg 1: Hämta grundläggande data (spelare, lag, events)
         # Lade till verify=False för att kringgå SSL-certifikatverifieringsfel.
-        # VARNING: Detta rekommenderas INTE för produktionsmiljöer då det kan vara en säkerhetsrisk.
-        # Det bör endast användas för lokal utveckling/testning om du stöter på SSL-problem.
-        response = requests.get(FPL_API_URL, verify=False)
-        response.raise_for_status()  # Kasta ett fel för dåliga statuskoder (4xx eller 5xx)
-        data = response.json()
+        # VARNING: Detta rekommenderas INTE för produktionsmiljöer.
+        bootstrap_response = requests.get(FPL_BOOTSTRAP_URL, verify=False)
+        bootstrap_response.raise_for_status()
+        bootstrap_data = bootstrap_response.json()
+
+        # Steg 2: Hämta matchdata (fixtures)
+        fixtures_response = requests.get(FPL_FIXTURES_URL, verify=False)
+        fixtures_response.raise_for_status()
+        fixtures_data = fixtures_response.json()
+
     except requests.exceptions.RequestException as e:
         print(f"Fel vid hämtning av FPL-data: {e}")
         return {"error": f"Kunde inte hämta data från FPL API: {e}"}
 
-    # Extrahera element (spelare), elementtyper (positioner) och lag
-    elements = pd.DataFrame(data['elements'])
-    element_types = pd.DataFrame(data['element_types'])
-    teams = pd.DataFrame(data['teams'])
+    # Bearbeta grundläggande data
+    elements = pd.DataFrame(bootstrap_data['elements'])
+    element_types = pd.DataFrame(bootstrap_data['element_types'])
+    teams = pd.DataFrame(bootstrap_data['teams'])
+    events = pd.DataFrame(bootstrap_data['events'])
+
+    # --- NY LOGIK: Hitta nästa omgång och bearbeta matcher ---
+
+    # Hitta nästa gameweek ID
+    next_gameweek_id = None
+    for event in events:
+        if event.get('is_next'):
+            next_gameweek_id = event.get('id')
+            break
+    
+    # Skapa mappning från lag-ID till kortnamn (t.ex. 1 -> 'ARS')
+    team_id_to_short_name_map = dict(zip(teams['id'], teams['short_name']))
+
+    # Skapa en mappning för varje lags nästa match
+    next_fixtures_map = defaultdict(dict)
+    if next_gameweek_id:
+        for fixture in fixtures_data:
+            if fixture.get('event') == next_gameweek_id:
+                home_team_id = fixture.get('team_h')
+                away_team_id = fixture.get('team_a')
+                
+                # Spara info för hemmalaget
+                next_fixtures_map[home_team_id] = {
+                    'opponent_short_name': team_id_to_short_name_map.get(away_team_id, 'N/A'),
+                    'is_home': True
+                }
+                # Spara info för bortalaget
+                next_fixtures_map[away_team_id] = {
+                    'opponent_short_name': team_id_to_short_name_map.get(home_team_id, 'N/A'),
+                    'is_home': False
+                }
+
+    # Lägg till den nya informationen i huvud-DataFrame för spelare
+    elements['next_opponent'] = elements['team'].apply(
+        lambda team_id: next_fixtures_map.get(team_id, {}).get('opponent_short_name', 'BLANK')
+    )
+    elements['is_home'] = elements['team'].apply(
+        lambda team_id: next_fixtures_map.get(team_id, {}).get('is_home', False)
+    )
+
+    # --- BEFINTLIG LOGIK: Bearbeta resten av spelardatan ---
 
     # Mappa positioner (element_type_id till namn)
     pos_map = dict(zip(element_types['id'], element_types['singular_name_short']))
     elements['position'] = elements['element_type'].map(pos_map)
 
-    # Mappa lag (team_id till namn)
+    # Mappa lag (team_id till fullständigt namn)
     team_map = dict(zip(teams['id'], teams['name']))
     elements['team'] = elements['team'].map(team_map)
 
-    # Välj och döp om relevanta kolumner för din fpl_data.json
-    # Konvertera priser från pence till miljoner pund (t.ex. 45 -> 4.5)
-    # FPL API ger pris i 10-delar av pund, så 45 betyder 4.5m.
+    # Konvertera priser
     elements['price'] = elements['now_cost'] / 10.0
 
-    # Välj de datapunkter som är relevanta för din optimerare och hemsida
-    # Lägger till de nya fält som diskuterats:
+    # Välj de datapunkter som är relevanta
     processed_df = elements[[
         'id', 'first_name', 'second_name', 'web_name', 'team', 'position', 'price',
-        'selected_by_percent', # Används för 'ownership_percentage'
-        'form',
-        'total_points',
-        'points_per_game',
-        'value_form',
-        'goals_scored',
-        'assists',
-        'clean_sheets',
-        'goals_conceded',
-        'saves',
-        'bonus',
-        'ict_index',
-        'status', # Skadestatus (t.ex. 'a', 'd', 'i', 's')
-        'chance_of_playing_this_round', # Procentuell chans att spela nästa omgång
-        'news', # Kort nyhetsmeddelande om spelaren (t.ex. skada)
-        'cost_change_event', # Prisförändring under aktuell omgång
-        'cost_change_start', # Prisförändring sedan säsongsstart
-        'transfers_in_event', # Antal in-transfers aktuell omgång
-        'transfers_out_event', # Antal ut-transfers aktuell omgång
-        'ep_this', # FPL:s egna förväntade poäng för denna omgång (kan användas som 'expected_points')
-        'ep_next' # FPL:s egna förväntade poäng för nästa omgång (kan användas som 'expected_points')
+        'selected_by_percent', 'form', 'total_points', 'points_per_game',
+        'value_form', 'goals_scored', 'assists', 'clean_sheets',
+        'goals_conceded', 'saves', 'bonus', 'ict_index', 'status',
+        'chance_of_playing_this_round', 'news', 'cost_change_event',
+        'cost_change_start', 'transfers_in_event', 'transfers_out_event',
+        'ep_this', 'ep_next',
+        'next_opponent', 'is_home' # De nya kolumnerna
     ]].copy()
 
-    # Skapa 'name' kolumn från 'web_name' för enkelhetens skull
+    # Skapa och döp om kolumner precis som i din originalkod
     processed_df['name'] = processed_df['web_name']
-
-    # Döp om 'selected_by_percent' till 'ownership_percentage' för att matcha optimeringskoden
     processed_df.rename(columns={'selected_by_percent': 'ownership_percentage'}, inplace=True)
     
-    # Döp om 'ep_this' eller 'ep_next' till 'expected_points'
-    # Prioriterar 'ep_next' om den finns, annars 'ep_this'
     if 'ep_next' in processed_df.columns and not processed_df['ep_next'].isnull().all():
-        processed_df['expected_points'] = processed_df['ep_next']
+        processed_df['expected_points'] = pd.to_numeric(processed_df['ep_next'], errors='coerce').fillna(0)
     elif 'ep_this' in processed_df.columns and not processed_df['ep_this'].isnull().all():
-        processed_df['expected_points'] = processed_df['ep_this']
+        processed_df['expected_points'] = pd.to_numeric(processed_df['ep_this'], errors='coerce').fillna(0)
     else:
-        # Fallback om varken ep_this eller ep_next finns eller är tomma
-        print("Varning: 'ep_this' eller 'ep_next' saknas eller är tomma. 'expected_points' kommer att vara NaN.")
-        processed_df['expected_points'] = np.nan # Sätt till NaN om ingen data finns
+        processed_df['expected_points'] = 0.0
 
-    # Hantera saknade 'chance_of_playing_this_round' värden (kan vara None i API)
-    # Konvertera till numerisk typ först, fyll sedan i NaN, och konvertera till int.
     processed_df['chance_of_playing_this_round'] = pd.to_numeric(
         processed_df['chance_of_playing_this_round'], errors='coerce'
     ).fillna(100).astype(int)
 
-    # Ta bort temporära 'ep_this' och 'ep_next' om de inte är den primära 'expected_points'
     processed_df.drop(columns=['ep_this', 'ep_next'], errors='ignore', inplace=True)
 
     # Spara den bearbetade datan till en JSON-fil
