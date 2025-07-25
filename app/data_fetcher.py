@@ -9,9 +9,11 @@ def get_fpl_data() -> Dict[str, Any]:
     # Try different possible locations for the JSON file
     possible_paths = [
         "fpl_data.json",                    # Same directory as main.py
-        "../fpl_data.json",                 # Parent directory
-        "/opt/render/project/src/fpl_data.json",  # Render root
+        "../fpl_data.json",                 # Parent directory  
+        "/opt/render/project/src/fpl_data.json",  # Render root (from debug we know it's here!)
         os.path.join(os.path.dirname(__file__), "..", "fpl_data.json"),  # Relative to app folder
+        "./fpl_data.json",                  # Current working directory
+        os.path.join("/opt/render/project/src", "fpl_data.json"),  # Absolute path
     ]
     
     print("Looking for fpl_data.json file...")
