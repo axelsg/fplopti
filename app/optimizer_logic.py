@@ -224,13 +224,19 @@ def create_optimal_team(fpl_data: Dict[str, Any], strategy: str = "best_15") -> 
     for player in starting_11 + bench:
         player.pop('is_starting', None)
     
+    # Also include the full squad for compatibility
+    optimal_squad_15 = starting_11 + bench
+    
     return {
         "optimal_starting_xi": starting_11,
         "bench": bench,
+        "optimal_squad_15": optimal_squad_15,  # For backward compatibility
         "summary": {
             "squad_total_cost": round(total_cost, 1),
             "xi_total_expected_points": round(xi_expected_points, 1),
+            "squad_total_expected_points": round(sum(p['expected_points'] for p in optimal_squad_15), 1),
             "strategy_used": strategy,
-            "captain": captain_player
+            "captain": captain_player,
+            "vice_captain": starting_11[1] if len(starting_11) > 1 else None  # Second best player
         }
     }
