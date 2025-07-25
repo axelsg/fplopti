@@ -1,137 +1,117 @@
-import requests
 import json
 import os
-import time
 from typing import Dict, Any
 
 def get_fpl_data() -> Dict[str, Any]:
     """
-    Fetch FPL data with caching to avoid hitting the API too frequently
+    Load FPL data from local fpl_data.json file
     """
-    cache_file = "fpl_cache.json"
-    cache_duration = 3600  # 1 hour in seconds
+    # Try different possible locations for the JSON file
+    possible_paths = [
+        "fpl_data.json",                    # Same directory as main.py
+        "../fpl_data.json",                 # Parent directory
+        "/opt/render/project/src/fpl_data.json",  # Render root
+        os.path.join(os.path.dirname(__file__), "..", "fpl_data.json"),  # Relative to app folder
+    ]
     
-    # Check if cache exists and is fresh
-    if os.path.exists(cache_file):
-        try:
-            cache_age = time.time() - os.path.getmtime(cache_file)
-            if cache_age < cache_duration:
-                with open(cache_file, 'r') as f:
-                    print(f"Using cached data (age: {int(cache_age)}s)")
-                    return json.load(f)
-        except Exception as e:
-            print(f"Cache read error: {e}")
+    print("Looking for fpl_data.json file...")
     
-    # Fetch fresh data
-    print("Fetching fresh FPL data...")
-    url = "https://fantasy.premierleague.com/api/bootstrap-static/"
+    for file_path in possible_paths:
+        print(f"Checking: {file_path}")
+        if os.path.exists(file_path):
+            try:
+                print(f"Found fpl_data.json at: {file_path}")
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # Validate that it's FPL data
+                if 'elements' in data and 'teams' in data:
+                    players_count = len(data.get('elements', []))
+                    teams_count = len(data.get('teams', []))
+                    print(f"Loaded FPL data: {players_count} players, {teams_count} teams")
+                    return data
+                else:
+                    print(f"File {file_path} doesn't contain valid FPL data structure")
+                    
+            except json.JSONDecodeError as e:
+                print(f"JSON decode error in {file_path}: {e}")
+            except Exception as e:
+                print(f"Error reading {file_path}: {e}")
     
-    # Headers to mimic a real browser request
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Cache-Control': 'max-age=0'
-    }
+    # If no file found, show debug info
+    print("=== DEBUG: File system info ===")
+    print(f"Current working directory: {os.getcwd()}")
+    print(f"__file__ location: {__file__ if '__file__' in globals() else 'Not available'}")
+    print(f"Directory of this file: {os.path.dirname(__file__) if '__file__' in globals() else 'Not available'}")
     
+    # List files in current directory
     try:
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Save to cache
-        try:
-            with open(cache_file, 'w') as f:
-                json.dump(data, f)
-            print("Data cached successfully")
-        except Exception as e:
-            print(f"Cache write error: {e}")
-        
-        return data
-        
-    except requests.exceptions.RequestException as e:
-        # If fresh fetch fails but cache exists, use stale cache
-        if os.path.exists(cache_file):
-            print(f"Fetch failed ({e}), using stale cache")
-            with open(cache_file, 'r') as f:
-                return json.load(f)
-        else:
-            raise Exception(f"Failed to fetch FPL data: {e}")
+        current_files = os.listdir('.')
+        print(f"Files in current directory: {current_files}")
+    except Exception as e:
+        print(f"Can't list current directory: {e}")
+    
+    # List files in parent directory
+    try:
+        parent_files = os.listdir('..')
+        print(f"Files in parent directory: {parent_files}")
+    except Exception as e:
+        print(f"Can't list parent directory: {e}")
+    
+    raise FileNotFoundError(
+        "Could not find fpl_data.json file. "
+        "Please ensure the file is uploaded to your repository. "
+        f"Searched in: {possible_paths}"
+    )
 
-def get_fpl_data_with_session() -> Dict[str, Any]:
+# Backup function using sample data if file not found
+def get_sample_fpl_data() -> Dict[str, Any]:
     """
-    Alternative method using requests session with more browser-like behavior
+    Return minimal sample FPL data structure for testing
     """
-    cache_file = "fpl_cache.json"
-    cache_duration = 3600  # 1 hour in seconds
-    
-    # Check cache first
-    if os.path.exists(cache_file):
-        try:
-            cache_age = time.time() - os.path.getmtime(cache_file)
-            if cache_age < cache_duration:
-                with open(cache_file, 'r') as f:
-                    print(f"Using cached data (age: {int(cache_age)}s)")
-                    return json.load(f)
-        except Exception as e:
-            print(f"Cache read error: {e}")
-    
-    print("Fetching fresh FPL data with session...")
-    
-    # Create session with browser-like behavior
-    session = requests.Session()
-    
-    # Set headers that mimic a real browser
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-    })
-    
+    return {
+        "elements": [
+            {
+                "id": 1,
+                "web_name": "Sample Player 1",
+                "element_type": 1,
+                "team": 1,
+                "now_cost": 45,
+                "ep_next": 5.2,
+                "status": "a",
+                "selected_by_percent": "15.0",
+                "chance_of_playing_next_round": 100
+            },
+            {
+                "id": 2, 
+                "web_name": "Sample Player 2",
+                "element_type": 2,
+                "team": 2,
+                "now_cost": 50,
+                "ep_next": 4.8,
+                "status": "a",
+                "selected_by_percent": "8.5",
+                "chance_of_playing_next_round": 100
+            }
+        ],
+        "teams": [
+            {"id": 1, "name": "Sample Team 1", "short_name": "SAM1"},
+            {"id": 2, "name": "Sample Team 2", "short_name": "SAM2"}
+        ],
+        "element_types": [
+            {"id": 1, "singular_name": "Goalkeeper"},
+            {"id": 2, "singular_name": "Defender"}
+        ],
+        "fixtures": []
+    }
+
+# Function that tries real data first, then falls back to sample
+def get_fpl_data_with_fallback() -> Dict[str, Any]:
+    """
+    Try to get real FPL data, fall back to sample data if not available
+    """
     try:
-        # First, make a request to the main FPL site to get cookies
-        print("Getting FPL homepage for cookies...")
-        session.get('https://fantasy.premierleague.com/', timeout=15)
-        
-        # Small delay to be respectful
-        time.sleep(1)
-        
-        # Now get the API data
-        print("Fetching API data...")
-        url = "https://fantasy.premierleague.com/api/bootstrap-static/"
-        response = session.get(url, timeout=30)
-        response.raise_for_status()
-        
-        data = response.json()
-        
-        # Save to cache
-        try:
-            with open(cache_file, 'w') as f:
-                json.dump(data, f)
-            print("Data cached successfully")
-        except Exception as e:
-            print(f"Cache write error: {e}")
-        
-        return data
-        
-    except requests.exceptions.RequestException as e:
-        print(f"Session method failed: {e}")
-        # If fresh fetch fails but cache exists, use stale cache
-        if os.path.exists(cache_file):
-            print("Using stale cache as fallback")
-            with open(cache_file, 'r') as f:
-                return json.load(f)
-        else:
-            raise Exception(f"Failed to fetch FPL data: {e}")
-    finally:
-        session.close()
+        return get_fpl_data()
+    except FileNotFoundError:
+        print("Real FPL data not found, using sample data for testing")
+        return get_sample_fpl_data()
