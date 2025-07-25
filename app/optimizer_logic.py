@@ -1,6 +1,6 @@
 # ===============================================================
 # Fil: optimizer_logic.py
-# (Denna fil har den nya, korrigerade logiken)
+# (Denna fil har den nya, korrigerade och kompletta logiken)
 # ===============================================================
 import pandas as pd
 import pulp
@@ -17,7 +17,7 @@ def run_fpl_optimizer(
     """
     Kör hela optimeringsprocessen.
     Strategin 'best_11_cheap_bench' använder nu en smartare enstegs-optimering
-    med en bestraffning för dyr bänk.
+    med en aggressiv bestraffning för dyr bänk.
     """
     # --- FPL Regler och konstanter ---
     BUDGET = 100.0
@@ -54,15 +54,14 @@ def run_fpl_optimizer(
         squad_vars = pulp.LpVariable.dicts("SquadPlayer", df.index, cat='Binary')
         xi_vars = pulp.LpVariable.dicts("XIPlayer", df.index, cat='Binary')
 
-        # **KORRIGERING: Nytt, smartare mål.**
-        # Maximera poängen för startelvan MINUS en liten bestraffning för bänkkostnaden.
-        bench_cost_penalty_factor = 0.1 
+        # **KORRIGERING: Aggressivare bestraffning för bänkkostnad.**
+        bench_cost_penalty_factor = 1.0 
         objective = pulp.lpSum([xi_vars[i] * df.loc[i, 'adjusted_expected_points'] for i in df.index]) - \
                     bench_cost_penalty_factor * pulp.lpSum([(squad_vars[i] - xi_vars[i]) * df.loc[i, 'price'] for i in df.index])
         
         prob += objective, "Maximize_XI_Points_Penalize_Bench_Cost"
 
-        # --- Begränsningar (samma som tidigare) ---
+        # --- Begränsningar ---
         for i in df.index:
             prob += xi_vars[i] <= squad_vars[i]
         prob += pulp.lpSum([squad_vars[i] * df.loc[i, 'price'] for i in df.index]) <= BUDGET
@@ -89,7 +88,6 @@ def run_fpl_optimizer(
 
     else:
         # --- GAMMAL TVÅSTEGS-METOD FÖR ANDRA STRATEGIER ---
-        # (Denna kod är densamma som tidigare och fungerar bra för dessa strategier)
         prob_squad = pulp.LpProblem("FPL_Squad_Optimization", pulp.LpMaximize)
         squad_player_vars = pulp.LpVariable.dicts("SquadPlayer", df.index, cat='Binary')
         
