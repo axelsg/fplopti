@@ -176,14 +176,121 @@ def get_fpl_data_from_file() -> Dict[str, Any]:
                 with open(file_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 
-                # Validate that it's FPL data
-                if 'elements' in data and 'teams' in data:
-                    players_count = len(data.get('elements', []))
-                    teams_count = len(data.get('teams', []))
-                    print(f"Successfully loaded FPL data from file: {players_count} players, {teams_count} teams")
-                    return data
+                # Debug: Show what's actually in the file
+                print(f"File loaded successfully. Type: {type(data)}")
+                
+                if isinstance(data, list):
+                    print(f"Data is a list with {len(data)} items")
+                    if len(data) > 0:
+                        print(f"First item keys: {list(data[0].keys()) if isinstance(data[0], dict) else 'Not a dict'}")
+                        
+                    # Convert your format to FPL API format
+                    print("Converting custom format to FPL API format...")
+                    
+                    # Extract unique teams
+                    teams = []
+                    team_names = set()
+                    team_id_map = {}
+                    
+                    for i, player in enumerate(data):
+                        team_name = player.get('team', 'Unknown')
+                        if team_name not in team_names:
+                            team_id = len(teams) + 1
+                            teams.append({
+                                "id": team_id,
+                                "name": team_name,
+                                "short_name": team_name[:3].upper()
+                            })
+                            team_names.add(team_name)
+                            team_id_map[team_name] = team_id
+                    
+                    # Position mapping
+                    position_map = {"GKP": 1, "DEF": 2, "MID": 3, "FWD": 4}
+                    
+                    # Convert players to FPL format
+                    elements = []
+                    for player in data:
+                        elements.append({
+                            "id": player.get("id", 0),
+                            "web_name": player.get("web_name", player.get("name", "Unknown")),
+                            "first_name": player.get("first_name", ""),
+                            "second_name": player.get("second_name", ""),
+                            "element_type": position_map.get(player.get("position", "MID"), 3),
+                            "team": team_id_map.get(player.get("team", "Unknown"), 1),
+                            "now_cost": int(float(player.get("price", 5.0)) * 10),  # Convert to FPL format (£5.5 -> 55)
+                            "ep_next": float(player.get("expected_points", 0)),
+                            "total_points": player.get("total_points", 0),
+                            "status": player.get("status", "a"),
+                            "selected_by_percent": player.get("ownership_percentage", "0"),
+                            "chance_of_playing_next_round": player.get("chance_of_playing_this_round", 100),
+                            "form": player.get("form", "0.0"),
+                            "points_per_game": player.get("points_per_game", "0.0"),
+                            "goals_scored": player.get("goals_scored", 0),
+                            "assists": player.get("assists", 0),
+                            "clean_sheets": player.get("clean_sheets", 0),
+                            "goals_conceded": player.get("goals_conceded", 0),
+                            "saves": player.get("saves", 0),
+                            "bonus": player.get("bonus", 0)
+                        })
+                    
+                    # Create FPL API format
+                    normalized_data = {
+                        "elements": elements,
+                        "teams": teams,
+                        "element_types": [
+                            {"id": 1, "singular_name": "Goalkeeper"},
+                            {"id": 2, "singular_name": "Defender"},
+                            {"id": 3, "singular_name": "Midfielder"}, 
+                            {"id": 4, "singular_name": "Forward"}
+                        ],
+                        "fixtures": []  # Add empty fixtures for now
+                    }
+                    
+                    players_count = len(elements)
+                    teams_count = len(teams)
+                    print(f"Successfully converted to FPL format: {players_count} players, {teams_count} teams")
+                    return normalized_data
+                    
+                elif isinstance(data, dict):
+                    print(f"Data structure details:")
+                    for key in data.keys():
+                        if isinstance(data[key], list):
+                            print(f"  {key}: list with {len(data[key])} items")
+                        else:
+                            print(f"  {key}: {type(data[key])}")
+                
+                    # Validate that it's FPL data - be more flexible
+                    if 'elements' in data or 'players' in data:
+                        # Handle different possible formats
+                        players = data.get('elements', data.get('players', []))
+                        teams = data.get('teams', [])
+                        
+                        if players and teams:
+                            players_count = len(players)
+                            teams_count = len(teams)
+                            print(f"Successfully loaded FPL data from file: {players_count} players, {teams_count} teams")
+                            
+                            # Normalize format if needed
+                            normalized_data = {
+                                'elements': players,
+                                'teams': teams,
+                                'element_types': data.get('element_types', [
+                                    {"id": 1, "singular_name": "Goalkeeper"},
+                                    {"id": 2, "singular_name": "Defender"}, 
+                                    {"id": 3, "singular_name": "Midfielder"},
+                                    {"id": 4, "singular_name": "Forward"}
+                                ]),
+                                'fixtures': data.get('fixtures', [])
+                            }
+                            return normalized_data
+                        else:
+                            print(f"File has dict structure but missing player/team data")
+                    else:
+                        print(f"File {file_path} doesn't contain valid FPL data structure")
+                        print(f"Available keys: {list(data.keys())}")
                 else:
-                    print(f"File {file_path} doesn't contain valid FPL data structure")
+                    print(f"Data is type: {type(data)}")
+                    
                     
             else:
                 print(f"File does not exist: {file_path}")
