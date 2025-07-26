@@ -29,70 +29,115 @@ def get_fpl_data() -> Dict[str, Any]:
 
 def get_fpl_data_with_session() -> Dict[str, Any]:
     """
-    Fetch FPL data using requests session with browser-like behavior
+    Fetch FPL data using multiple proxy methods
     """
-    print("Attempting to fetch FPL data using session method...")
+    print("Attempting to fetch FPL data using proxy methods...")
     
-    # Create session with browser-like behavior
+    # Try different approaches
+    methods = [
+        ("Direct API with session", get_fpl_direct_session),
+        ("CORS proxy", get_fpl_via_cors_proxy),
+        ("Alternative headers", get_fpl_alternative_headers)
+    ]
+    
+    for method_name, method_func in methods:
+        try:
+            print(f"Trying {method_name}...")
+            data = method_func()
+            if data and 'elements' in data:
+                players_count = len(data.get('elements', []))
+                print(f"Success with {method_name}: {players_count} players")
+                return data
+        except Exception as e:
+            print(f"{method_name} failed: {e}")
+            continue
+    
+    raise Exception("All FPL data fetching methods failed")
+
+def get_fpl_direct_session() -> Dict[str, Any]:
+    """Direct session method"""
     session = requests.Session()
-    
-    # Set headers that mimic a real browser
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+        'Accept': 'application/json',
+        'Accept-Language': 'en-GB,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
         'Connection': 'keep-alive',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-origin',
-        'Referrer': 'https://fantasy.premierleague.com/',
+        'Upgrade-Insecure-Requests': '1',
     })
     
     try:
-        # First, make a request to the main FPL site to establish session
-        print("Establishing session with FPL website...")
-        main_response = session.get('https://fantasy.premierleague.com/', timeout=15)
-        print(f"Main site response status: {main_response.status_code}")
+        # Get main page first
+        session.get('https://fantasy.premierleague.com/', timeout=10)
+        time.sleep(1)
         
-        # Small delay to be respectful
-        time.sleep(2)
-        
-        # Now get the API data
-        print("Fetching API data...")
-        url = "https://fantasy.premierleague.com/api/bootstrap-static/"
-        response = session.get(url, timeout=30)
-        
-        print(f"API response status: {response.status_code}")
+        # Get API data
+        response = session.get('https://fantasy.premierleague.com/api/bootstrap-static/', timeout=15)
         response.raise_for_status()
-        
-        data = response.json()
-        
-        # Validate data
-        if 'elements' in data and 'teams' in data:
-            players_count = len(data.get('elements', []))
-            teams_count = len(data.get('teams', []))
-            print(f"Successfully fetched FPL data: {players_count} players, {teams_count} teams")
-            return data
-        else:
-            raise ValueError("Invalid FPL data structure received")
-        
-    except requests.exceptions.HTTPError as e:
-        if e.response.status_code == 403:
-            print("Got 403 Forbidden - FPL is blocking server requests")
-            raise Exception("FPL API blocked the request (403 Forbidden)")
-        else:
-            raise Exception(f"HTTP error {e.response.status_code}: {e}")
-            
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"Request failed: {e}")
-        
-    except json.JSONDecodeError as e:
-        raise Exception(f"Invalid JSON response: {e}")
-        
+        return response.json()
     finally:
         session.close()
+
+def get_fpl_via_cors_proxy() -> Dict[str, Any]:
+    """Try using CORS proxy"""
+    proxy_urls = [
+        "https://api.allorigins.win/get?url=",
+        "https://cors-anywhere.herokuapp.com/",
+        "https://thingproxy.freeboard.io/fetch/"
+    ]
+    
+    target_url = "https://fantasy.premierleague.com/api/bootstrap-static/"
+    
+    for proxy in proxy_urls:
+        try:
+            if "allorigins" in proxy:
+                full_url = f"{proxy}{requests.utils.quote(target_url)}"
+                response = requests.get(full_url, timeout=15)
+                response.raise_for_status()
+                data = response.json()
+                return json.loads(data['contents'])
+            else:
+                full_url = f"{proxy}{target_url}"
+                response = requests.get(full_url, timeout=15, headers={
+                    'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
+                })
+                response.raise_for_status()
+                return response.json()
+        except Exception as e:
+            print(f"Proxy {proxy} failed: {e}")
+            continue
+    
+    raise Exception("All proxy methods failed")
+
+def get_fpl_alternative_headers() -> Dict[str, Any]:
+    """Try with different headers"""
+    headers_list = [
+        {
+            'User-Agent': 'FPL-Bot/1.0',
+            'Accept': 'application/json',
+        },
+        {
+            'User-Agent': 'curl/7.68.0',
+            'Accept': '*/*',
+        },
+        {
+            'User-Agent': 'Python-requests/2.28.0',
+            'Accept': 'application/json',
+        }
+    ]
+    
+    url = "https://fantasy.premierleague.com/api/bootstrap-static/"
+    
+    for headers in headers_list:
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            print(f"Headers {headers['User-Agent']} failed: {e}")
+            continue
+    
+    raise Exception("All header methods failed")
 
 def get_fpl_data_from_file() -> Dict[str, Any]:
     """
@@ -159,28 +204,28 @@ def get_sample_fpl_data() -> Dict[str, Any]:
     print("Using sample FPL data for testing...")
     return {
         "elements": [
-            # Goalkeepers
+            # Goalkeepers (budget options)
             {"id": 1, "web_name": "Alisson", "element_type": 1, "team": 1, "now_cost": 55, "ep_next": 5.2, "status": "a", "selected_by_percent": "15.0", "chance_of_playing_next_round": 100},
-            {"id": 2, "web_name": "Pickford", "element_type": 1, "team": 2, "now_cost": 50, "ep_next": 4.8, "status": "a", "selected_by_percent": "8.5", "chance_of_playing_next_round": 100},
+            {"id": 2, "web_name": "Pickford", "element_type": 1, "team": 2, "now_cost": 45, "ep_next": 4.2, "status": "a", "selected_by_percent": "8.5", "chance_of_playing_next_round": 100},
             
-            # Defenders  
+            # Defenders (mix of premium and budget)
             {"id": 3, "web_name": "Alexander-Arnold", "element_type": 2, "team": 1, "now_cost": 70, "ep_next": 6.1, "status": "a", "selected_by_percent": "22.0", "chance_of_playing_next_round": 100},
             {"id": 4, "web_name": "Robertson", "element_type": 2, "team": 1, "now_cost": 60, "ep_next": 5.5, "status": "a", "selected_by_percent": "18.0", "chance_of_playing_next_round": 100},
-            {"id": 5, "web_name": "Stones", "element_type": 2, "team": 3, "now_cost": 55, "ep_next": 4.9, "status": "a", "selected_by_percent": "12.0", "chance_of_playing_next_round": 100},
-            {"id": 6, "web_name": "Trippier", "element_type": 2, "team": 4, "now_cost": 58, "ep_next": 5.2, "status": "a", "selected_by_percent": "16.0", "chance_of_playing_next_round": 100},
-            {"id": 7, "web_name": "Chilwell", "element_type": 2, "team": 5, "now_cost": 52, "ep_next": 4.7, "status": "a", "selected_by_percent": "9.0", "chance_of_playing_next_round": 100},
+            {"id": 5, "web_name": "Stones", "element_type": 2, "team": 3, "now_cost": 45, "ep_next": 4.2, "status": "a", "selected_by_percent": "12.0", "chance_of_playing_next_round": 100},
+            {"id": 6, "web_name": "Budget Defender 1", "element_type": 2, "team": 4, "now_cost": 40, "ep_next": 3.8, "status": "a", "selected_by_percent": "16.0", "chance_of_playing_next_round": 100},
+            {"id": 7, "web_name": "Budget Defender 2", "element_type": 2, "team": 5, "now_cost": 40, "ep_next": 3.5, "status": "a", "selected_by_percent": "9.0", "chance_of_playing_next_round": 100},
             
-            # Midfielders
+            # Midfielders (mix of premium and budget)
             {"id": 8, "web_name": "Salah", "element_type": 3, "team": 1, "now_cost": 130, "ep_next": 8.5, "status": "a", "selected_by_percent": "45.0", "chance_of_playing_next_round": 100},
             {"id": 9, "web_name": "De Bruyne", "element_type": 3, "team": 3, "now_cost": 125, "ep_next": 8.2, "status": "a", "selected_by_percent": "38.0", "chance_of_playing_next_round": 100},
-            {"id": 10, "web_name": "Bruno Fernandes", "element_type": 3, "team": 6, "now_cost": 110, "ep_next": 7.8, "status": "a", "selected_by_percent": "32.0", "chance_of_playing_next_round": 100},
-            {"id": 11, "web_name": "Saka", "element_type": 3, "team": 7, "now_cost": 95, "ep_next": 7.1, "status": "a", "selected_by_percent": "28.0", "chance_of_playing_next_round": 100},
-            {"id": 12, "web_name": "Rice", "element_type": 3, "team": 7, "now_cost": 65, "ep_next": 5.2, "status": "a", "selected_by_percent": "15.0", "chance_of_playing_next_round": 100},
+            {"id": 10, "web_name": "Saka", "element_type": 3, "team": 7, "now_cost": 80, "ep_next": 6.1, "status": "a", "selected_by_percent": "28.0", "chance_of_playing_next_round": 100},
+            {"id": 11, "web_name": "Budget Mid 1", "element_type": 3, "team": 6, "now_cost": 50, "ep_next": 4.2, "status": "a", "selected_by_percent": "15.0", "chance_of_playing_next_round": 100},
+            {"id": 12, "web_name": "Budget Mid 2", "element_type": 3, "team": 8, "now_cost": 45, "ep_next": 3.8, "status": "a", "selected_by_percent": "12.0", "chance_of_playing_next_round": 100},
             
-            # Forwards
+            # Forwards (mix of premium and budget)
             {"id": 13, "web_name": "Haaland", "element_type": 4, "team": 3, "now_cost": 150, "ep_next": 9.2, "status": "a", "selected_by_percent": "55.0", "chance_of_playing_next_round": 100},
-            {"id": 14, "web_name": "Kane", "element_type": 4, "team": 8, "now_cost": 125, "ep_next": 8.1, "status": "a", "selected_by_percent": "35.0", "chance_of_playing_next_round": 100},
-            {"id": 15, "web_name": "Watkins", "element_type": 4, "team": 9, "now_cost": 85, "ep_next": 6.5, "status": "a", "selected_by_percent": "20.0", "chance_of_playing_next_round": 100},
+            {"id": 14, "web_name": "Watkins", "element_type": 4, "team": 9, "now_cost": 75, "ep_next": 6.0, "status": "a", "selected_by_percent": "20.0", "chance_of_playing_next_round": 100},
+            {"id": 15, "web_name": "Budget Forward", "element_type": 4, "team": 4, "now_cost": 45, "ep_next": 3.5, "status": "a", "selected_by_percent": "8.0", "chance_of_playing_next_round": 100},
         ],
         "teams": [
             {"id": 1, "name": "Liverpool", "short_name": "LIV"},
