@@ -243,7 +243,15 @@ def get_fpl_data_from_file() -> Dict[str, Any]:
                             {"id": 3, "singular_name": "Midfielder"}, 
                             {"id": 4, "singular_name": "Forward"}
                         ],
-                        "fixtures": []  # Add empty fixtures for now
+                        "fixtures": data.get("fixtures", [])
+                    
+                    # Add some dummy fixtures if none exist (needed for optimizer)
+                    if not normalized_data["fixtures"]:
+                        normalized_data["fixtures"] = [
+                            {"id": i+1, "team_h": (i % len(teams)) + 1, "team_a": ((i+1) % len(teams)) + 1, 
+                             "event": 1, "finished": False}
+                            for i in range(min(10, len(teams)//2))  # Create some dummy fixtures
+                        ]
                     }
                     
                     players_count = len(elements)
