@@ -4,8 +4,8 @@ import uuid
 from typing import Dict, Any
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Response, Request
+from fastapi.middleware.cors import CORSMiddleware  # Lägg tillbaka denna!
 from pydantic import BaseModel
-# Notera: Vi importerar inte CORSMiddleware längre.
 
 # --- Samma robusta importlogik som tidigare ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -57,22 +57,34 @@ def run_optimization_task(job_id: str, strategy: str):
 app = FastAPI(
     title="FPL Optimizer API",
     description="API for optimizing Fantasy Premier League teams",
-    version="1.5.0_CORS_OVERRIDE" # NYTT VERSIONNUMMER
+    version="1.6.0_CORS_FIXED"
 )
 
-# --- BORTTAGEN KOD ---
-# Vi använder inte längre den inbyggda CORSMiddleware.
-# app.add_middleware(CORSMiddleware, ...) är borttagen.
+# --- ÅTERSTÄLLD CORS MIDDLEWARE MED LOVEABLE DOMÄNER ---
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://*.lovableproject.com",
+        "https://lovableproject.com", 
+        "https://*.lovable.dev",
+        "https://lovable.dev",
+        "*"  # Tillåt alla för test - ta bort i produktion
+    ],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
-# --- NY KOD: MANUELL MIDDLEWARE FÖR CORS ---
-# Denna funktion kommer att köras för VARJE anrop. Den fångar anropet,
-# låter den vanliga hanteringen ske, och lägger sedan på CORS-headers på svaret.
+# --- EXTRA MIDDLEWARE FÖR ATT SÄKERSTÄLLA CORS ---
 @app.middleware("http")
-async def add_cors_headers(request: Request, call_next):
+async def add_additional_cors_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    response.headers["Access-Control-Max-Age"] = "86400"  # 24 timmar
     return response
 
 # --- Endpoints ---
@@ -80,7 +92,7 @@ async def add_cors_headers(request: Request, call_next):
 @app.get("/version")
 def get_version():
     """Returnerar den nuvarande versionen av appen för att verifiera deployment."""
-    return {"version": "1.5.0_CORS_OVERRIDE", "message": "Deployment is live and correct."}
+    return {"version": "1.6.0_CORS_FIXED", "message": "Deployment is live and CORS fixed."}
 
 @app.get("/")
 def health_check():
@@ -89,11 +101,18 @@ def health_check():
 class OptimizationRequest(BaseModel):
     strategy: str = "best_15"
 
-# Den manuella OPTIONS-hanteraren är fortfarande viktig för att returnera 200 OK snabbt
-@app.options("/optimize-team")
-async def options_optimize_team():
-    # Svara enkelt med 200 OK. Vår nya middleware kommer att lägga på headrarna.
-    return Response(status_code=200)
+@app.options("/{path:path}")
+async def options_handler(path: str):
+    """Hantera alla OPTIONS requests"""
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Max-Age": "86400",
+        }
+    )
 
 @app.post("/optimize-team", status_code=202)
 def start_optimization(request: OptimizationRequest, background_tasks: BackgroundTasks):
