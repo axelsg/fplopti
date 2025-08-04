@@ -3,9 +3,9 @@ import os
 import uuid
 from typing import Dict, Any
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Response
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Response, Request
 from pydantic import BaseModel
+# Notera: Vi importerar inte CORSMiddleware längre.
 
 # --- Samma robusta importlogik som tidigare ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -53,56 +53,47 @@ def run_optimization_task(job_id: str, strategy: str):
         traceback.print_exc()
         optimization_jobs[job_id] = {"status": "failed", "error": str(e)}
 
-# --- FastAPI App & CORS-inställningar ---
+# --- FastAPI App ---
 app = FastAPI(
     title="FPL Optimizer API",
     description="API for optimizing Fantasy Premier League teams",
-    version="1.4.1_VERIFICATION"  # NYTT VERSIONNUMMER FÖR ATT VERIFIERA
+    version="1.5.0_CORS_OVERRIDE" # NYTT VERSIONNUMMER
 )
 
-allowed_origins = [
-    "https://lovable.dev",
-    "https://*.lovable.app",
-    "https://*.vableproject.com",
-    "http://localhost:3000",
-    "http://localhost:5173",
-]
+# --- BORTTAGEN KOD ---
+# Vi använder inte längre den inbyggda CORSMiddleware.
+# app.add_middleware(CORSMiddleware, ...) är borttagen.
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# --- Endpoints ---
-
-# VERIFIERINGS-ENDPOINT
-@app.get("/version")
-def get_version():
-    """Returnerar den nuvarande versionen av appen för att verifiera deployment."""
-    return {"version": "1.4.1_VERIFICATION", "message": "Deployment is live and correct."}
-
-@app.get("/")
-def health_check():
-    return {
-        "status": "ok", 
-        "message": "FPL Optimizer API is running",
-        "optimizer_available": OPTIMIZER_AVAILABLE
-    }
-
-class OptimizationRequest(BaseModel):
-    strategy: str = "best_15"
-
-# Manuell OPTIONS-hanterare
-@app.options("/optimize-team")
-async def options_optimize_team():
-    response = Response()
+# --- NY KOD: MANUELL MIDDLEWARE FÖR CORS ---
+# Denna funktion kommer att köras för VARJE anrop. Den fångar anropet,
+# låter den vanliga hanteringen ske, och lägger sedan på CORS-headers på svaret.
+@app.middleware("http")
+async def add_cors_headers(request: Request, call_next):
+    response = await call_next(request)
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
+
+# --- Endpoints ---
+
+@app.get("/version")
+def get_version():
+    """Returnerar den nuvarande versionen av appen för att verifiera deployment."""
+    return {"version": "1.5.0_CORS_OVERRIDE", "message": "Deployment is live and correct."}
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "message": "FPL Optimizer API is running"}
+
+class OptimizationRequest(BaseModel):
+    strategy: str = "best_15"
+
+# Den manuella OPTIONS-hanteraren är fortfarande viktig för att returnera 200 OK snabbt
+@app.options("/optimize-team")
+async def options_optimize_team():
+    # Svara enkelt med 200 OK. Vår nya middleware kommer att lägga på headrarna.
+    return Response(status_code=200)
 
 @app.post("/optimize-team", status_code=202)
 def start_optimization(request: OptimizationRequest, background_tasks: BackgroundTasks):
