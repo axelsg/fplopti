@@ -4,7 +4,7 @@ import uuid
 from typing import Dict, Any
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Response, Request
-from fastapi.middleware.cors import CORSMiddleware  # Lägg tillbaka denna!
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # --- Samma robusta importlogik som tidigare ---
@@ -57,59 +57,73 @@ def run_optimization_task(job_id: str, strategy: str):
 app = FastAPI(
     title="FPL Optimizer API",
     description="API for optimizing Fantasy Premier League teams",
-    version="1.6.0_CORS_FIXED"
+    version="1.7.0_LOVEABLE_CORS_FIX"
 )
 
-# --- ÅTERSTÄLLD CORS MIDDLEWARE MED LOVEABLE DOMÄNER ---
+# --- CORS MIDDLEWARE MED SPECIFIKA LOVEABLE DOMÄNER ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173",
-        "https://*.lovableproject.com",
-        "https://lovableproject.com", 
-        "https://*.lovable.dev",
         "https://lovable.dev",
-        "*"  # Tillåt alla för test - ta bort i produktion
+        "https://*.lovable.dev",
+        "https://lovableproject.com", 
+        "https://*.lovableproject.com",
+        "https://862ad416-c6a6-400e-b5a6-27a17a5b8983-1.lovableproject.com",  # Din specifika URL
+        "*"  # Tillåt alla temporärt för debugging
     ],
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "OPTIONS", "PUT", "DELETE"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
-# --- EXTRA MIDDLEWARE FÖR ATT SÄKERSTÄLLA CORS ---
+# --- EXTRA SÄKERHET: MANUELL CORS MIDDLEWARE ---
 @app.middleware("http")
-async def add_additional_cors_headers(request: Request, call_next):
+async def cors_handler(request: Request, call_next):
     response = await call_next(request)
+    
+    # Lägg till CORS headers på alla responses
     response.headers["Access-Control-Allow-Origin"] = "*"
-    response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    response.headers["Access-Control-Max-Age"] = "86400"  # 24 timmar
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PUT, DELETE"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Max-Age"] = "86400"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    
     return response
 
 # --- Endpoints ---
 
-@app.get("/version")
-def get_version():
-    """Returnerar den nuvarande versionen av appen för att verifiera deployment."""
-    return {"version": "1.6.0_CORS_FIXED", "message": "Deployment is live and CORS fixed."}
-
 @app.get("/")
 def health_check():
-    return {"status": "ok", "message": "FPL Optimizer API is running"}
+    return {
+        "status": "ok", 
+        "message": "FPL Optimizer API is running",
+        "version": "1.7.0_LOVEABLE_CORS_FIX",
+        "cors": "enabled"
+    }
+
+@app.get("/version")
+def get_version():
+    return {
+        "version": "1.7.0_LOVEABLE_CORS_FIX", 
+        "message": "CORS fixed for Loveable",
+        "optimizer_available": OPTIMIZER_AVAILABLE
+    }
 
 class OptimizationRequest(BaseModel):
     strategy: str = "best_15"
 
+# Explicit OPTIONS handler för alla routes
 @app.options("/{path:path}")
 async def options_handler(path: str):
-    """Hantera alla OPTIONS requests"""
     return Response(
         status_code=200,
         headers={
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS, PUT, DELETE",
+            "Access-Control-Allow-Headers": "*",
             "Access-Control-Max-Age": "86400",
         }
     )
@@ -124,7 +138,12 @@ def start_optimization(request: OptimizationRequest, background_tasks: Backgroun
         raise HTTPException(status_code=400, detail=f"Invalid strategy. Choose from: {valid_strategies}")
 
     background_tasks.add_task(run_optimization_task, job_id, request.strategy)
-    return {"job_id": job_id, "status": "accepted", "message": "Optimization started."}
+    return {
+        "job_id": job_id, 
+        "status": "accepted", 
+        "message": "Optimization started.",
+        "estimated_time": "30-60 seconds"
+    }
 
 @app.get("/results/{job_id}")
 def get_results(job_id: str):
@@ -132,6 +151,15 @@ def get_results(job_id: str):
     if not job:
         raise HTTPException(status_code=404, detail="Job ID not found.")
     return job
+
+# Test endpoint för CORS
+@app.get("/test-cors")
+def test_cors():
+    return {
+        "message": "CORS is working!",
+        "timestamp": "2025-08-04",
+        "status": "success"
+    }
 
 if __name__ == "__main__":
     import uvicorn
