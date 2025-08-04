@@ -80,15 +80,33 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS middleware
+# Enhanced CORS middleware - Allow specific Lovable domains
+allowed_origins = [
+    "https://lovable.dev",
+    "https://id-preview--862ad416-c6a6-400e-b5a6-27a17a5b8983.lovable.app",
+    "https://id-preview--862ad416-8983.lovable.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:5173"
+]
+
+# Add wildcard for any Lovable preview URLs
+lovable_pattern = "https://*.lovable.app"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["*"],  # Allow all origins for now
+    allow_credentials=False,  # Set to False when using allow_origins=["*"]
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"]
 )
+
+# Add a preflight handler for OPTIONS requests
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    return {"message": "OK"}
 
 @app.get("/")
 def health_check():
@@ -97,7 +115,8 @@ def health_check():
         "status": "ok", 
         "message": "FPL Optimizer API is running",
         "optimizer_available": OPTIMIZER_AVAILABLE,
-        "version": "1.0.0"
+        "version": "1.0.0",
+        "cors": "enabled"
     }
 
 @app.get("/debug")
@@ -120,7 +139,8 @@ def debug_info():
         "ortools_available": ortools_available,
         "ortools_version": ortools_version,
         "python_path": sys.path[:5],  # First 5 entries
-        "data_fetcher_available": get_fpl_data is not None
+        "data_fetcher_available": get_fpl_data is not None,
+        "cors_origins": allowed_origins
     }
 
 @app.get("/data-test")
@@ -149,6 +169,8 @@ class OptimizationRequest(BaseModel):
 @app.post("/optimize-team")
 def optimize_team(request: OptimizationRequest):
     """Optimize FPL team"""
+    print(f"🚀 Received optimization request: {request.strategy}")
+    
     try:
         # Validate strategy
         valid_strategies = ["best_15", "best_11_cheap_bench", "defensive", "offensive", "enabling", "differential"]
@@ -157,6 +179,7 @@ def optimize_team(request: OptimizationRequest):
         
         # Check if optimizer is available
         if not OPTIMIZER_AVAILABLE:
+            print("❌ Optimizer not available, returning error response")
             return {
                 "error": "Optimizer logic not available - check OR-Tools installation and deployment",
                 "optimal_starting_xi": [],
@@ -172,17 +195,24 @@ def optimize_team(request: OptimizationRequest):
         if not get_fpl_data:
             raise HTTPException(status_code=500, detail="data_fetcher not available")
             
+        print("📊 Fetching FPL data...")
         fpl_data = get_fpl_data()
         if not fpl_data:
             raise HTTPException(status_code=500, detail="Failed to fetch FPL data")
         
+        print(f"✅ FPL data fetched: {len(fpl_data.get('elements', []))} players")
+        
         # Create optimal team
+        print("🤖 Creating optimal team...")
         result = create_optimal_team(fpl_data, request.strategy)
+        
+        print("✅ Optimization completed successfully")
         return result
         
     except HTTPException:
         raise
     except Exception as e:
+        print(f"❌ Error in optimize_team: {str(e)}")
         return {
             "error": str(e),
             "optimal_starting_xi": [],
