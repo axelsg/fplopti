@@ -57,7 +57,7 @@ def run_optimization_task(job_id: str, strategy: str):
 app = FastAPI(
     title="FPL Optimizer API",
     description="API for optimizing Fantasy Premier League teams",
-    version="1.3.0"
+    version="1.4.1_VERIFICATION"  # NYTT VERSIONNUMMER FÖR ATT VERIFIERA
 )
 
 allowed_origins = [
@@ -68,7 +68,6 @@ allowed_origins = [
     "http://localhost:5173",
 ]
 
-# CORSMiddleware är fortfarande det primära sättet att hantera CORS.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
@@ -78,6 +77,13 @@ app.add_middleware(
 )
 
 # --- Endpoints ---
+
+# VERIFIERINGS-ENDPOINT
+@app.get("/version")
+def get_version():
+    """Returnerar den nuvarande versionen av appen för att verifiera deployment."""
+    return {"version": "1.4.1_VERIFICATION", "message": "Deployment is live and correct."}
+
 @app.get("/")
 def health_check():
     return {
@@ -89,20 +95,13 @@ def health_check():
 class OptimizationRequest(BaseModel):
     strategy: str = "best_15"
 
-# --- NY, MANUELL OPTIONS-HANTERARE SOM GARANTERAD LÖSNING ---
-# Denna route kommer att fånga upp OPTIONS-anropet till /optimize-team
-# och svara med de korrekta headers som webbläsaren förväntar sig.
-# Detta är en mer explicit lösning om middleware av någon anledning misslyckas.
+# Manuell OPTIONS-hanterare
 @app.options("/optimize-team")
 async def options_optimize_team():
     response = Response()
-    # Sätt de headers som krävs för att klara "preflight"-kontrollen.
-    # Vi tillåter alla ursprung från vår lista, men för ett simpelt svar kan "*" fungera
-    # om allow_credentials inte är ett strikt krav för preflight.
-    # För säkerhets skull, låt oss anta att vi inte vet exakt vilken origin som anropar.
-    response.headers["Access-Control-Allow-Origin"] = "*" # Tillåter alla för just detta anrop
+    response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization" # Lägg till andra headers du kan tänkas använda
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     return response
 
 @app.post("/optimize-team", status_code=202)
